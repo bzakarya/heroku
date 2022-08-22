@@ -1,5 +1,5 @@
 from flask_restful import Resource, reqparse
-from flask_jwt import jwt_required
+from flask_jwt_extended import jwt_required, get_jwt, get_jwt_identity
 from models.item import ItemModel
 
 
@@ -16,12 +16,14 @@ class Item(Resource):
                         help="Every item needs a store_id."
                         )
 
+    @jwt_required()  # No longer needs brackets
     def get(self, name):
         item = ItemModel.find_by_name(name)
         if item:
             return item.json()
         return {'message': 'Item not found'}, 404
 
+    @jwt_required(refresh=True)
     def post(self, name):
         if ItemModel.find_by_name(name):
             return {'message': "An item with name '{}' already exists.".format(name)}, 400
@@ -37,7 +39,11 @@ class Item(Resource):
 
         return item.json(), 201
 
+    @jwt_required()
     def delete(self, name):
+        claims = get_jwt()
+        if not claims['is_admin']:
+            return {'message': 'you need to be an admin'}, 401
         item = ItemModel.find_by_name(name)
         if item:
             item.delete_from_db()
@@ -60,6 +66,12 @@ class Item(Resource):
 
 
 class ItemList(Resource):
+    @jwt_required(optional=True)
     def get(self):
-        return {'items': [x.json() for x in ItemModel.find_all()]}
-        # {'items': list(map(lambda x:x.json(), ItemModel.query.all()))}
+        user_id = get_jwt_identity()
+        items = [item.json() for item in ItemModel.find_all()]
+        if user_id:
+            return {'items': items}, 200
+        return {'items': [item['name'] for item in items],
+                'message': 'more data is available if you log in.'
+                }, 200
